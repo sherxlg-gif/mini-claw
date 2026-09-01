@@ -16,14 +16,31 @@ env:
   IMAGE_NAME: miniclaw-agent
 
 jobs:
+  check-credentials:
+    name: Check Docker Hub credentials
+    runs-on: ubuntu-24.04
+    outputs:
+      configured: ${{ steps.credentials.outputs.configured }}
+    steps:
+      - name: Detect Docker Hub credentials
+        id: credentials
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [[ -n "$DOCKERHUB_USERNAME" && -n "$DOCKERHUB_TOKEN" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Docker Hub credentials are not configured; skipping image publish."
+          fi
+
   build-and-smoke:
     name: Build and smoke (${{ matrix.platform }})
     # Docker Hub credentials are optional for forks and private local copies.
     # Skip the publish workflow's build/push jobs until they are configured.
-    if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-    env:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    needs: check-credentials
+    if: ${{ needs.check-credentials.outputs.configured == 'true' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -98,10 +115,7 @@ jobs:
   promote:
     name: Promote verified multi-platform image
     needs: build-and-smoke
-    if: ${{ needs.build-and-smoke.result == 'success' && env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-    env:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    if: ${{ needs.build-and-smoke.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
