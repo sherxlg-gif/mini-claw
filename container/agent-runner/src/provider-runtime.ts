@@ -41,7 +41,10 @@ export function resolveClaudeQueryModelRuntime(
 export function resolveClaudeProviderRuntime(
   env: Readonly<Record<string, string | undefined>>,
 ): ClaudeProviderRuntime {
-  const model = env.ANTHROPIC_MODEL?.trim() ?? '';
+  // New multi-provider hosts inject the selected model through the unified
+  // contract. Keep ANTHROPIC_MODEL as a fallback for older Claude hosts.
+  const model =
+    env.MINICLAW_PROVIDER_MODEL?.trim() || env.ANTHROPIC_MODEL?.trim() || '';
   const protocol = (env.MINICLAW_PROVIDER_PROTOCOL?.trim() || 'anthropic-messages') as ClaudeProviderRuntime['protocol'];
   const marker = (
     env[MINICLAW_CLAUDE_ENDPOINT_KIND_ENV] || env[CLAUDE_ENDPOINT_KIND_ENV]
@@ -51,7 +54,7 @@ export function resolveClaudeProviderRuntime(
   const endpointKind: ClaudeEndpointKind =
     marker === 'official' || marker === 'custom'
       ? marker
-      : env.ANTHROPIC_BASE_URL?.trim()
+      : env.MINICLAW_PROVIDER_BASE_URL?.trim() || env.ANTHROPIC_BASE_URL?.trim()
         ? 'custom'
         : 'official';
 

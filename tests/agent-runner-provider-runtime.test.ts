@@ -67,6 +67,20 @@ describe('agent-runner provider model contract', () => {
     ).toBe('custom');
   });
 
+  test('uses the unified provider model for OpenAI-compatible hosts', () => {
+    const runtime = resolveClaudeProviderRuntime({
+      MINICLAW_CLAUDE_ENDPOINT_KIND: 'custom',
+      MINICLAW_PROVIDER_PROTOCOL: 'openai-chat-completions',
+      MINICLAW_PROVIDER_BASE_URL: 'https://api.deepseek.com/v1',
+      MINICLAW_PROVIDER_MODEL: 'deepseek-chat',
+    });
+
+    expect(runtime.model).toBe('deepseek-chat');
+    expect(runtime.queryModelOptions).toEqual({ model: 'deepseek-chat' });
+    expect(runtime.missingRequiredModel).toBe(false);
+    expect(runtime.endpointKind).toBe('custom');
+  });
+
   test.each([
     ['openai-chat-completions', 'https://api.deepseek.com/v1', 'deepseek-chat'],
     ['openai-responses', 'https://api.example.test/v1', 'codex-mini'],
