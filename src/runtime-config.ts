@@ -492,7 +492,10 @@ interface StoredClaudeProviderConfigV5 {
   updatedAt: string;
 }
 
-interface StoredClaudeProviderConfigV6 extends Omit<StoredClaudeProviderConfigV5, 'version'> {
+interface StoredClaudeProviderConfigV6 extends Omit<
+  StoredClaudeProviderConfigV5,
+  'version'
+> {
   version: 6;
 }
 
@@ -1173,7 +1176,11 @@ function writeStoredState(state: ClaudeStoredStateV3Resolved): void {
 
 function toStoredProviderV4(provider: UnifiedProvider): StoredProviderV4 {
   const secrets: SecretPayload = {
-    apiKey: provider.apiKey || provider.anthropicApiKey || provider.anthropicAuthToken || '',
+    apiKey:
+      provider.apiKey ||
+      provider.anthropicApiKey ||
+      provider.anthropicAuthToken ||
+      '',
     customHeaders: provider.customHeaders || {},
     anthropicAuthToken: provider.anthropicAuthToken || '',
     anthropicApiKey: provider.anthropicApiKey || '',
@@ -1207,7 +1214,11 @@ function fromStoredProviderV4(stored: StoredProviderV4): UnifiedProvider {
   const protocol: ProviderProtocol = stored.protocol || 'anthropic-messages';
   const baseUrl = stored.baseUrl || stored.anthropicBaseUrl || '';
   const model = stored.model || stored.anthropicModel || '';
-  const apiKey = secrets.apiKey || secrets.anthropicApiKey || secrets.anthropicAuthToken || '';
+  const apiKey =
+    secrets.apiKey ||
+    secrets.anthropicApiKey ||
+    secrets.anthropicAuthToken ||
+    '';
   return {
     id: stored.id,
     name: stored.name,
@@ -1379,7 +1390,11 @@ function readStoredStateV4(): {
         },
       };
       if (parsed.version === 5) {
-        writeStoredStateV4(state.providers, state.balancing, state.defaultProviderId);
+        writeStoredStateV4(
+          state.providers,
+          state.balancing,
+          state.defaultProviderId,
+        );
       }
       return state;
     }
@@ -1532,16 +1547,24 @@ export function createProvider(input: {
   }
 
   const now = new Date().toISOString();
-  const protocol = input.protocol || (input.type === 'official' ? 'anthropic-messages' : 'anthropic-messages');
-  const normalizedBaseUrl = input.baseUrl !== undefined
-    ? normalizeBaseUrl(input.baseUrl)
-    : normalizeBaseUrl(input.anthropicBaseUrl || '');
-  const normalizedModel = input.model !== undefined
-    ? normalizeModel(input.model)
-    : normalizeModel(input.anthropicModel || '');
-  const normalizedApiKey = input.apiKey !== undefined
-    ? normalizeSecret(input.apiKey, 'apiKey')
-    : normalizeSecret(input.anthropicApiKey || input.anthropicAuthToken || '', 'apiKey');
+  const protocol =
+    input.protocol ||
+    (input.type === 'official' ? 'anthropic-messages' : 'anthropic-messages');
+  const normalizedBaseUrl =
+    input.baseUrl !== undefined
+      ? normalizeBaseUrl(input.baseUrl)
+      : normalizeBaseUrl(input.anthropicBaseUrl || '');
+  const normalizedModel =
+    input.model !== undefined
+      ? normalizeModel(input.model)
+      : normalizeModel(input.anthropicModel || '');
+  const normalizedApiKey =
+    input.apiKey !== undefined
+      ? normalizeSecret(input.apiKey, 'apiKey')
+      : normalizeSecret(
+          input.anthropicApiKey || input.anthropicAuthToken || '',
+          'apiKey',
+        );
   const provider: UnifiedProvider = {
     id: crypto.randomBytes(8).toString('hex'),
     name: normalizeProfileName(input.name),
@@ -1554,9 +1577,10 @@ export function createProvider(input: {
       : '',
     anthropicModel: normalizedModel,
     model: normalizedModel,
-    anthropicApiKey: protocol === 'anthropic-messages' && input.anthropicApiKey
-      ? normalizeSecret(input.anthropicApiKey, 'anthropicApiKey')
-      : normalizedApiKey,
+    anthropicApiKey:
+      protocol === 'anthropic-messages' && input.anthropicApiKey
+        ? normalizeSecret(input.anthropicApiKey, 'anthropicApiKey')
+        : normalizedApiKey,
     claudeCodeOauthToken: input.claudeCodeOauthToken
       ? normalizeSecret(input.claudeCodeOauthToken, 'claudeCodeOauthToken')
       : '',
@@ -1606,17 +1630,31 @@ export function updateProvider(
       : {}),
     ...(patch.protocol !== undefined ? { protocol: patch.protocol } : {}),
     ...(patch.baseUrl !== undefined
-      ? { baseUrl: normalizeBaseUrl(patch.baseUrl), anthropicBaseUrl: normalizeBaseUrl(patch.baseUrl) }
+      ? {
+          baseUrl: normalizeBaseUrl(patch.baseUrl),
+          anthropicBaseUrl: normalizeBaseUrl(patch.baseUrl),
+        }
       : {}),
     ...(patch.model !== undefined
-      ? { model: normalizeModel(patch.model), anthropicModel: normalizeModel(patch.model) }
+      ? {
+          model: normalizeModel(patch.model),
+          anthropicModel: normalizeModel(patch.model),
+        }
       : {}),
-    ...(patch.customHeaders !== undefined ? { customHeaders: patch.customHeaders } : {}),
+    ...(patch.customHeaders !== undefined
+      ? { customHeaders: patch.customHeaders }
+      : {}),
     ...(patch.anthropicBaseUrl !== undefined
-      ? { anthropicBaseUrl: normalizeBaseUrl(patch.anthropicBaseUrl) }
+      ? {
+          anthropicBaseUrl: normalizeBaseUrl(patch.anthropicBaseUrl),
+          baseUrl: normalizeBaseUrl(patch.anthropicBaseUrl),
+        }
       : {}),
     ...(patch.anthropicModel !== undefined
-      ? { anthropicModel: normalizeModel(patch.anthropicModel) }
+      ? {
+          anthropicModel: normalizeModel(patch.anthropicModel),
+          model: normalizeModel(patch.anthropicModel),
+        }
       : {}),
     ...(patch.customEnv !== undefined
       ? {
@@ -1779,7 +1817,10 @@ export function providerToConfig(
   return {
     protocol: provider.protocol || 'anthropic-messages',
     baseUrl: provider.baseUrl || provider.anthropicBaseUrl,
-    apiKey: provider.apiKey || provider.anthropicApiKey || provider.anthropicAuthToken,
+    apiKey:
+      provider.apiKey ||
+      provider.anthropicApiKey ||
+      provider.anthropicAuthToken,
     customHeaders: provider.customHeaders || {},
     anthropicBaseUrl: provider.anthropicBaseUrl,
     anthropicAuthToken: provider.anthropicAuthToken,
@@ -1820,8 +1861,16 @@ export function toPublicProvider(
     updatedAt: provider.updatedAt,
     protocol: provider.protocol || 'anthropic-messages',
     baseUrl: provider.baseUrl || provider.anthropicBaseUrl,
-    hasApiKey: !!(provider.apiKey || provider.anthropicApiKey || provider.anthropicAuthToken),
-    apiKeyMasked: maskSecret(provider.apiKey || provider.anthropicApiKey || provider.anthropicAuthToken),
+    hasApiKey: !!(
+      provider.apiKey ||
+      provider.anthropicApiKey ||
+      provider.anthropicAuthToken
+    ),
+    apiKeyMasked: maskSecret(
+      provider.apiKey ||
+        provider.anthropicApiKey ||
+        provider.anthropicAuthToken,
+    ),
     customHeaders: Object.fromEntries(
       Object.keys(provider.customHeaders || {}).map((key) => [key, '***']),
     ),
@@ -2740,7 +2789,8 @@ export function buildClaudeEnvLines(
       RESERVED_CLAUDE_ENV_KEYS.has(key) ||
       RESERVED_OPENAI_ENV_KEYS.has(key) ||
       isDangerousEnvKey(key)
-    ) continue;
+    )
+      continue;
     if (config.anthropicBaseUrl && THIRD_PARTY_CONFIGURABLE_ENV_KEYS.has(key)) {
       continue;
     }
@@ -3167,16 +3217,26 @@ export function buildContainerEnvLines(
       : []),
   ];
   lines.push(`MINICLAW_PROVIDER_PROTOCOL=${protocol}`);
-  lines.push(`MINICLAW_PROVIDER_BASE_URL=${sanitizeEnvValue(merged.baseUrl || merged.anthropicBaseUrl || '')}`);
-  lines.push(`MINICLAW_PROVIDER_MODEL=${sanitizeEnvValue(merged.anthropicModel || '')}`);
-  lines.push(`MINICLAW_PROVIDER_API_KEY=${sanitizeEnvValue(merged.apiKey || merged.anthropicApiKey || merged.anthropicAuthToken || '')}`);
+  lines.push(
+    `MINICLAW_PROVIDER_BASE_URL=${sanitizeEnvValue(merged.baseUrl || merged.anthropicBaseUrl || '')}`,
+  );
+  lines.push(
+    `MINICLAW_PROVIDER_MODEL=${sanitizeEnvValue(merged.anthropicModel || '')}`,
+  );
+  lines.push(
+    `MINICLAW_PROVIDER_API_KEY=${sanitizeEnvValue(merged.apiKey || merged.anthropicApiKey || merged.anthropicAuthToken || '')}`,
+  );
   if (protocol !== 'anthropic-messages') {
     lines.push(`OPENAI_BASE_URL=${sanitizeEnvValue(merged.baseUrl || '')}`);
     lines.push(`OPENAI_MODEL=${sanitizeEnvValue(merged.anthropicModel || '')}`);
-    lines.push(`OPENAI_API_KEY=${sanitizeEnvValue(merged.apiKey || merged.anthropicApiKey || merged.anthropicAuthToken || '')}`);
+    lines.push(
+      `OPENAI_API_KEY=${sanitizeEnvValue(merged.apiKey || merged.anthropicApiKey || merged.anthropicAuthToken || '')}`,
+    );
   }
   if (merged.customHeaders && Object.keys(merged.customHeaders).length > 0) {
-    lines.push(`MINICLAW_PROVIDER_CUSTOM_HEADERS=${JSON.stringify(merged.customHeaders)}`);
+    lines.push(
+      `MINICLAW_PROVIDER_CUSTOM_HEADERS=${JSON.stringify(merged.customHeaders)}`,
+    );
   }
   // Append custom env vars (with safety sanitization as defense-in-depth)
   if (override.customEnv) {
