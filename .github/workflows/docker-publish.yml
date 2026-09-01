@@ -18,6 +18,12 @@ env:
 jobs:
   build-and-smoke:
     name: Build and smoke (${{ matrix.platform }})
+    # Docker Hub credentials are optional for forks and private local copies.
+    # Skip the publish workflow's build/push jobs until they are configured.
+    if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -92,6 +98,10 @@ jobs:
   promote:
     name: Promote verified multi-platform image
     needs: build-and-smoke
+    if: ${{ needs.build-and-smoke.result == 'success' && env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
