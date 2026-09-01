@@ -76,8 +76,13 @@ import {
   UnifiedProviderCreateSchema,
   UnifiedProviderPatchSchema,
   UnifiedProviderSecretsSchema,
+  ProviderModelDiscoverySchema,
   BalancingConfigSchema,
 } from '../schemas.js';
+import {
+  fetchProviderModels,
+  type ProviderModelDiscoveryInput,
+} from '../provider-model-discovery.js';
 import {
   getClaudeProviderConfig,
   toPublicClaudeProviderConfig,
@@ -174,88 +179,6 @@ import {
   restorePendingAdminHostOnlyRuntimeSafetyBlocks,
 } from '../admin-host-only-runtime.js';
 const configRoutes = new Hono<{ Variables: Variables }>();
-
-type ProviderModelOption = {
-  id: string;
-  name: string;
-};
-
-function providerModelsUrl(baseUrl: string): string {
-  const normalized = baseUrl.trim().replace(/\/+$/, '');
-  if (!normalized) throw new Error('该 Provider 未配置 API Endpoint');
-  const parsed = new URL(`${normalized}/`);
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('API Endpoint 必须使用 HTTP 或 HTTPS');
-  }
-  return new URL('models', parsed).toString();
-}
-
-function providerModelHeaders(provider: ReturnType<typeof getProviders>[number]): Record<string, string> {
-  const config = providerToConfig(provider);
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    ...(provider.customHeaders || {}),
-  };
-  if (config.apiKey && !Object.keys(headers).some((key) => key.toLowerCase() === 'authorization' || key.toLowerCase() === 'x-api-key')) {
-    if ((provider.protocol || 'anthropic-messages') === 'anthropic-messages') {
-      headers['x-api-key'] = config.apiKey;
-      headers['anthropic-version'] = '2023-06-01';
-    } else {
-      headers.Authorization = `Bearer ${config.apiKey}`;
-    }
-  }
-  return headers;
-}
-
-async function fetchProviderModels(provider: ReturnType<typeof getProviders>[number]): Promise<ProviderModelOption[]> {
-  const endpoint = providerModelsUrl(provider.baseUrl || provider.anthropicBaseUrl || '');
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
-  try {
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      headers: providerModelHeaders(provider),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new Error(`上游模型列表请求失败（HTTP ${response.status}）`);
-    }
-    const payload = (await response.json()) as unknown;
-    const candidates =
-      Array.isArray(payload)
-        ? payload
-        : payload && typeof payload === 'object'
-          ? Array.isArray((payload as { data?: unknown }).data)
-            ? (payload as { data: unknown[] }).data
-            : Array.isArray((payload as { models?: unknown }).models)
-              ? (payload as { models: unknown[] }).models
-              : []
-          : [];
-    const seen = new Set<string>();
-    return candidates
-      .map((item): ProviderModelOption | null => {
-        if (typeof item === 'string') return { id: item, name: item };
-        if (!item || typeof item !== 'object') return null;
-        const record = item as Record<string, unknown>;
-        const id = typeof record.id === 'string' ? record.id.trim() : '';
-        if (!id) return null;
-        const name = typeof record.display_name === 'string'
-          ? record.display_name.trim()
-          : typeof record.name === 'string'
-            ? record.name.trim()
-            : id;
-        return { id, name: name || id };
-      })
-      .filter((item): item is ProviderModelOption => {
-        if (!item || seen.has(item.id)) return false;
-        seen.add(item.id);
-        return true;
-      })
-      .sort((a, b) => a.id.localeCompare(b.id));
-  } finally {
-    clearTimeout(timeout);
-  }
-}
 
 /**
  * Count how many IM channels are currently enabled for a user, excluding the given channel.
@@ -964,7 +887,62 @@ configRoutes.get(
   },
 );
 
-// ─── GET /claude/providers/:id/models — 从上游读取可用模型 ─────
+// ─── POST /claude/providers/models/discover — 使用当前表单临时读取模型 ─────
+configRoutes.post(
+  '/claude/providers/models/discover',
+  authMiddleware,
+  systemConfigMiddleware,
+  async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const validation = ProviderModelDiscoverySchema.safeParse(body);
+    if (!validation.success) {
+      return c.json(
+        { error: 'Invalid request body', details: validation.error.format() },
+        400,
+      );
+    }
+
+    const savedProvider = validation.data.providerId
+      ? getProviders().find((item) => item.id === validation.data.providerId)
+      : undefined;
+    if (validation.data.providerId && !savedProvider) {
+      return c.json({ error: '未找到指定供应商' }, 404);
+    }
+
+    const savedConfig = savedProvider ? providerToConfig(savedProvider) : null;
+    const input: ProviderModelDiscoveryInput = {
+      protocol: validation.data.protocol,
+      baseUrl: validation.data.baseUrl,
+      apiKey: validation.data.apiKey?.trim() || savedConfig?.apiKey || '',
+      customHeaders:
+        validation.data.customHeaders ?? savedProvider?.customHeaders ?? {},
+    };
+    const hasHeaderAuth = Object.keys(input.customHeaders || {}).some((key) => {
+      const normalized = key.toLowerCase();
+      return normalized === 'authorization' || normalized === 'x-api-key';
+    });
+    if (!input.apiKey && !hasHeaderAuth) {
+      return c.json(
+        { error: '该 Provider 未配置可用的 API Key 或认证 Header' },
+        400,
+      );
+    }
+
+    try {
+      const models = await fetchProviderModels(input);
+      return c.json({ models, fetchedAt: new Date().toISOString() });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '模型列表获取失败';
+      logger.warn(
+        { providerId: validation.data.providerId, err: message },
+        'Failed to discover provider models',
+      );
+      return c.json({ error: message }, 502);
+    }
+  },
+);
+
+// ─── GET /claude/providers/:id/models — 从已保存配置读取可用模型 ─────
 configRoutes.get(
   '/claude/providers/:id/models',
   authMiddleware,
@@ -974,7 +952,13 @@ configRoutes.get(
     const provider = getProviders().find((item) => item.id === id);
     if (!provider) return c.json({ error: '未找到指定供应商' }, 404);
     try {
-      const models = await fetchProviderModels(provider);
+      const config = providerToConfig(provider);
+      const models = await fetchProviderModels({
+        protocol: provider.protocol || 'anthropic-messages',
+        baseUrl: provider.baseUrl || provider.anthropicBaseUrl || '',
+        apiKey: config.apiKey,
+        customHeaders: provider.customHeaders || {},
+      });
       return c.json({
         providerId: id,
         protocol: provider.protocol || 'anthropic-messages',
@@ -983,7 +967,10 @@ configRoutes.get(
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : '模型列表获取失败';
-      logger.warn({ providerId: id, err: message }, 'Failed to fetch provider models');
+      logger.warn(
+        { providerId: id, err: message },
+        'Failed to fetch provider models',
+      );
       return c.json({ error: message }, 502);
     }
   },
@@ -1123,23 +1110,35 @@ configRoutes.patch(
         const changedFields = Object.keys(validation.data).map(
           (k) => `${k}:updated`,
         );
-        const nextBaseUrl = validation.data.baseUrl ?? validation.data.anthropicBaseUrl;
-        const nextModel = validation.data.model ?? validation.data.anthropicModel;
-        const baseUrlChanged = nextBaseUrl !== undefined &&
+        const nextBaseUrl =
+          validation.data.baseUrl ?? validation.data.anthropicBaseUrl;
+        const nextModel =
+          validation.data.model ?? validation.data.anthropicModel;
+        const baseUrlChanged =
+          nextBaseUrl !== undefined &&
           nextBaseUrl !== (previous.baseUrl || previous.anthropicBaseUrl);
-        const modelChanged = nextModel !== undefined &&
+        const modelChanged =
+          nextModel !== undefined &&
           nextModel !== (previous.model || previous.anthropicModel);
         const customEnvChanged = !!(
           validation.data.customEnv !== undefined &&
           JSON.stringify(validation.data.customEnv) !==
             JSON.stringify(previous.customEnv)
         );
-        const protocolChanged = validation.data.protocol !== undefined &&
-          validation.data.protocol !== (previous.protocol || 'anthropic-messages');
-        const customHeadersChanged = validation.data.customHeaders !== undefined &&
-          JSON.stringify(validation.data.customHeaders) !== JSON.stringify(previous.customHeaders || {});
+        const protocolChanged =
+          validation.data.protocol !== undefined &&
+          validation.data.protocol !==
+            (previous.protocol || 'anthropic-messages');
+        const customHeadersChanged =
+          validation.data.customHeaders !== undefined &&
+          JSON.stringify(validation.data.customHeaders) !==
+            JSON.stringify(previous.customHeaders || {});
         const protocolFieldChanged =
-          protocolChanged || baseUrlChanged || modelChanged || customEnvChanged || customHeadersChanged;
+          protocolChanged ||
+          baseUrlChanged ||
+          modelChanged ||
+          customEnvChanged ||
+          customHeadersChanged;
         const pendingInvalidation = getPendingProviderSessionInvalidation(id);
         const sessionInvalidation = {
           modelChanged:
@@ -1264,8 +1263,7 @@ configRoutes.put(
         const changedFields: string[] = [];
         if (validation.data.apiKey !== undefined)
           changedFields.push('apiKey:set');
-        if (validation.data.clearApiKey)
-          changedFields.push('apiKey:clear');
+        if (validation.data.clearApiKey) changedFields.push('apiKey:clear');
         if (validation.data.anthropicAuthToken !== undefined)
           changedFields.push('anthropicAuthToken:set');
         if (validation.data.clearAnthropicAuthToken)

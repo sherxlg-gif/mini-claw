@@ -1155,17 +1155,46 @@ const ProviderBaseUrlSchema = z
     { message: 'Base URL must be an HTTP(S) URL' },
   );
 
+const ProviderProtocolSchema = z.enum([
+  'anthropic-messages',
+  'openai-chat-completions',
+  'openai-responses',
+]);
+
+export const ProviderModelDiscoverySchema = z
+  .object({
+    providerId: z
+      .string()
+      .regex(/^[a-zA-Z0-9_-]{1,64}$/)
+      .optional(),
+    protocol: ProviderProtocolSchema,
+    baseUrl: ProviderBaseUrlSchema.refine((value) => value.trim().length > 0, {
+      message: 'API Endpoint is required',
+    }),
+    apiKey: z.string().max(2000).optional(),
+    customHeaders: z
+      .record(z.string().min(1).max(128), z.string().max(4096))
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+    const hasHeaderAuth = Object.keys(data.customHeaders || {}).some((key) => {
+      const normalized = key.toLowerCase();
+      return normalized === 'authorization' || normalized === 'x-api-key';
+    });
+    if (!data.providerId && !data.apiKey?.trim() && !hasHeaderAuth) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['apiKey'],
+        message: '未保存的 Provider 必须提供 API Key 或认证 Header',
+      });
+    }
+  });
+
 export const UnifiedProviderCreateSchema = z
   .object({
     name: z.string().min(1).max(64),
     type: z.enum(['official', 'third_party']),
-    protocol: z
-      .enum([
-        'anthropic-messages',
-        'openai-chat-completions',
-        'openai-responses',
-      ])
-      .optional(),
+    protocol: ProviderProtocolSchema.optional(),
     baseUrl: ProviderBaseUrlSchema.optional(),
     model: z.string().max(128).optional(),
     apiKey: z.string().max(2000).optional(),
@@ -1218,13 +1247,7 @@ export const UnifiedProviderCreateSchema = z
 export const UnifiedProviderPatchSchema = z
   .object({
     name: z.string().min(1).max(64).optional(),
-    protocol: z
-      .enum([
-        'anthropic-messages',
-        'openai-chat-completions',
-        'openai-responses',
-      ])
-      .optional(),
+    protocol: ProviderProtocolSchema.optional(),
     baseUrl: ProviderBaseUrlSchema.optional(),
     model: z.string().max(128).optional(),
     customHeaders: z
