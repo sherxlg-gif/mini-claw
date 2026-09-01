@@ -89,6 +89,17 @@ describe('channel onboarding frontend protocol contract', () => {
     expect(store).toContain('/logout');
   });
 
+  test('shows pairing controls inside QR account connection dialogs', () => {
+    const manager = read(
+      'web/src/components/settings/ChannelAccountsManager.tsx',
+    );
+    const qrBranch = manager.match(
+      /definition\.authMode === 'qr_session' \? \(([\s\S]*?)\n\s+\) :/,
+    );
+    expect(qrBranch?.[1]).toContain('AccountPairingSection');
+    expect(qrBranch?.[1]).toContain('supportsChannelPairing(account.provider)');
+  });
+
   test('auth and transport status are rendered as independent states', () => {
     const manager = read(
       'web/src/components/settings/ChannelAccountsManager.tsx',
