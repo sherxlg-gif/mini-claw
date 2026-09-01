@@ -31,7 +31,9 @@ import type { ProviderWithHealth, EnvRow } from './types';
 import { getErrorMessage } from './types';
 
 type ProviderType = 'official' | 'third_party';
+type ProviderProtocol = 'anthropic-messages' | 'openai-chat-completions' | 'openai-responses';
 type OfficialAuthTab = 'oauth' | 'setup_token' | 'api_key';
+type ProviderModelOption = { id: string; name: string };
 
 const RESERVED_ENV_KEYS = new Set([
   'ANTHROPIC_BASE_URL',
@@ -44,12 +46,27 @@ const RESERVED_ENV_KEYS = new Set([
 const DEFAULTED_THIRD_PARTY_ENV_KEYS = new Set(
   buildDefaultProviderEnv('', false).map((row) => row.key),
 );
+const MANAGED_PROVIDER_ENV_KEYS = new Set([
+  ...DEFAULTED_THIRD_PARTY_ENV_KEYS,
+  'OPENAI_BASE_URL',
+  'OPENAI_MODEL',
+  'OPENAI_API_KEY',
+]);
 
 const MANAGED_ENV_SOURCE_LABELS = {
   model: '跟随模型',
   context: '跟随上下文',
   default: '系统默认',
+  endpoint: '跟随 Endpoint',
+  provider: 'Provider 注入',
 } as const;
+
+const ENDPOINT_PRESETS = [
+  { label: 'DeepSeek', url: 'https://api.deepseek.com/v1' },
+  { label: 'Qwen', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+  { label: 'OpenAI', url: 'https://api.openai.com/v1' },
+  { label: '自定义', url: '' },
+] as const;
 
 function buildCustomEnv(
   rows: EnvRow[],
@@ -77,7 +94,7 @@ function buildCustomEnv(
     }
     if (
       RESERVED_ENV_KEYS.has(key) ||
-      (manageThirdPartyDefaults && DEFAULTED_THIRD_PARTY_ENV_KEYS.has(key))
+      (manageThirdPartyDefaults && MANAGED_PROVIDER_ENV_KEYS.has(key))
     ) {
       return {
         customEnv: {},
@@ -115,9 +132,15 @@ export function ProviderEditor({
 
   // 基础字段
   const [providerType, setProviderType] = useState<ProviderType>('third_party');
+  const [protocol, setProtocol] = useState<ProviderProtocol>('anthropic-messages');
   const [name, setName] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('');
+  const [modelOptions, setModelOptions] = useState<ProviderModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [headerRows, setHeaderRows] = useState<EnvRow[]>([]);
+  const [headersDirty, setHeadersDirty] = useState(false);
   const [oneMillionContext, setOneMillionContext] = useState(false);
 
   // 官方认证
@@ -148,18 +171,49 @@ export function ProviderEditor({
   // 状态
   const [saving, setSaving] = useState(false);
 
-  const defaultProviderEnv = buildDefaultProviderEnv(model, oneMillionContext);
+  const defaultProviderEnv = buildDefaultProviderEnv(
+    model,
+    protocol === 'anthropic-messages' ? oneMillionContext : false,
+    protocol,
+    baseUrl,
+  );
+
+  const refreshModels = useCallback(async () => {
+    if (!provider?.id) {
+      setModelsError('请先保存 Provider，再从上游拉取模型');
+      return;
+    }
+    setModelsLoading(true);
+    setModelsError(null);
+    try {
+      const response = await api.get<{ models: ProviderModelOption[] }>(
+        `/api/config/claude/providers/${provider.id}/models`,
+      );
+      setModelOptions(response.models || []);
+      if (!response.models?.length) setModelsError('上游未返回可用模型');
+    } catch (err) {
+      setModelsError(getErrorMessage(err, '模型列表获取失败'));
+    } finally {
+      setModelsLoading(false);
+    }
+  }, [provider]);
 
   // 初始化表单
   useEffect(() => {
     if (!open) return;
     setShowCustomEnvValues({});
+    setModelOptions([]);
+    setModelsError(null);
+    setModelsLoading(false);
 
     if (isCreate) {
       setProviderType('third_party');
+      setProtocol('openai-chat-completions');
       setName('');
       setBaseUrl('');
       setModel('');
+      setHeaderRows([]);
+      setHeadersDirty(false);
       setOneMillionContext(false);
       setAuthTab('oauth');
       setSetupToken('');
@@ -173,10 +227,13 @@ export function ProviderEditor({
       setProviderEnvOverrides({});
     } else {
       setProviderType(provider.type);
+      setProtocol(provider.protocol || (provider.type === 'official' ? 'anthropic-messages' : 'anthropic-messages'));
       setName(provider.name);
-      setBaseUrl(provider.anthropicBaseUrl || '');
-      const modelSelection = parseProviderModel(provider.anthropicModel || '');
+      setBaseUrl(provider.baseUrl || provider.anthropicBaseUrl || '');
+      const modelSelection = parseProviderModel(provider.model || provider.anthropicModel || '');
       setModel(modelSelection.model);
+      setHeaderRows(Object.entries(provider.customHeaders || {}).map(([key, value]) => ({ key, value })));
+      setHeadersDirty(false);
       setOneMillionContext(modelSelection.oneMillionContext);
       setAuthTab('oauth');
       setSetupToken('');
@@ -188,16 +245,18 @@ export function ProviderEditor({
       setClearTokenOnSave(false);
       const providerCustomEnv = provider.customEnv || {};
       const defaultEnv = Object.fromEntries(
-        buildDefaultProviderEnv(
-          modelSelection.model,
-          modelSelection.oneMillionContext,
-        ).map((row) => [row.key, row.value]),
+          buildDefaultProviderEnv(
+            modelSelection.model,
+            modelSelection.oneMillionContext,
+            provider.protocol || 'anthropic-messages',
+            provider.baseUrl || provider.anthropicBaseUrl || '',
+          ).map((row) => [row.key, row.value]),
       );
       const initialProviderEnvOverrides: Record<string, string> = {};
       if (provider.type === 'third_party') {
         for (const [key, value] of Object.entries(providerCustomEnv)) {
           if (
-            DEFAULTED_THIRD_PARTY_ENV_KEYS.has(key) &&
+            MANAGED_PROVIDER_ENV_KEYS.has(key) &&
             value !== defaultEnv[key]
           ) {
             initialProviderEnvOverrides[key] = value;
@@ -210,7 +269,7 @@ export function ProviderEditor({
         .filter(
           ([key]) =>
             provider.type !== 'third_party' ||
-            !DEFAULTED_THIRD_PARTY_ENV_KEYS.has(key),
+            !MANAGED_PROVIDER_ENV_KEYS.has(key),
         )
         .map(([key, value]) => ({ key, value }));
       setCustomEnvRows(envRows);
@@ -345,7 +404,13 @@ export function ProviderEditor({
         const createBody: Record<string, unknown> = {
           name: trimmedName,
           type: providerType,
+          protocol,
+          baseUrl: trimmedBaseUrl,
+          model: normalizedModel,
           customEnv: savedCustomEnv,
+          ...(headerRows.length > 0
+            ? { customHeaders: Object.fromEntries(headerRows.filter((row) => row.key.trim()).map((row) => [row.key.trim(), row.value])) }
+            : {}),
         };
 
         if (providerType === 'third_party') {
@@ -357,6 +422,7 @@ export function ProviderEditor({
           }
           createBody.anthropicBaseUrl = trimmedBaseUrl;
           createBody.anthropicAuthToken = trimmedToken;
+          if (protocol !== 'anthropic-messages') createBody.apiKey = trimmedToken;
         } else {
           // 官方模式 — 根据认证方式设置凭据
           if (authTab === 'setup_token') {
@@ -413,8 +479,16 @@ export function ProviderEditor({
         // ── 编辑模式 ──
         const patchBody: Record<string, unknown> = {
           name: trimmedName,
+          protocol,
+          baseUrl: trimmedBaseUrl,
+          model: normalizedModel,
           customEnv: savedCustomEnv,
         };
+        if (headersDirty) {
+          patchBody.customHeaders = Object.fromEntries(
+            headerRows.filter((row) => row.key.trim()).map((row) => [row.key.trim(), row.value]),
+          );
+        }
 
         if (providerType === 'third_party') {
           patchBody.anthropicBaseUrl = trimmedBaseUrl;
@@ -436,6 +510,7 @@ export function ProviderEditor({
             hasSecretsChange = true;
           } else if (authTokenDirty && authToken.trim()) {
             secretsBody.anthropicAuthToken = authToken.trim();
+            if (protocol !== 'anthropic-messages') secretsBody.apiKey = authToken.trim();
             hasSecretsChange = true;
           }
         } else {
@@ -778,10 +853,24 @@ export function ProviderEditor({
           {providerType === 'third_party' && (
             <div className="space-y-5">
               <div>
+                <label className="mb-1.5 block text-xs font-medium text-foreground">上游协议</label>
+                <select
+                  value={protocol}
+                  onChange={(e) => setProtocol(e.target.value as ProviderProtocol)}
+                  disabled={saving}
+                  className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+                >
+                  <option value="anthropic-messages">Anthropic Messages</option>
+                  <option value="openai-chat-completions">OpenAI Chat Completions</option>
+                  <option value="openai-responses">OpenAI Responses</option>
+                </select>
+                <p className="mt-1.5 text-xs text-muted-foreground">DeepSeek、Qwen、OpenAI 和大多数中转请选择 OpenAI Chat Completions。</p>
+              </div>
+              <div>
                 <label className="mb-1.5 flex items-center justify-between gap-3 text-xs font-medium text-foreground">
                   <span>API 端点</span>
                   <span className="font-normal text-muted-foreground">
-                    ANTHROPIC_BASE_URL
+                    {protocol === 'anthropic-messages' ? 'ANTHROPIC_BASE_URL' : 'API_ENDPOINT'}
                   </span>
                 </label>
                 <Input
@@ -790,11 +879,26 @@ export function ProviderEditor({
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
                   disabled={saving}
-                  placeholder="https://api.example.com/anthropic"
+                  placeholder={protocol === 'anthropic-messages' ? 'https://api.example.com/anthropic' : 'https://api.example.com/v1'}
                   autoComplete="off"
                 />
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {ENDPOINT_PRESETS.map((preset) => (
+                    <Button
+                      key={preset.label}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => setBaseUrl(preset.url)}
+                      disabled={saving}
+                    >
+                      {preset.label}
+                    </Button>
+                  ))}
+                </div>
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  填写 Anthropic 兼容接口的完整地址。
+                  填写服务商提供的 API 基础地址。
                 </p>
               </div>
 
@@ -802,9 +906,9 @@ export function ProviderEditor({
                 <label className="mb-1.5 flex items-center justify-between gap-3 text-xs font-medium text-foreground">
                   <span>API 密钥</span>
                   <span className="font-normal text-muted-foreground">
-                    {!isCreate && provider?.hasAnthropicAuthToken
-                      ? `当前 ${provider.anthropicAuthTokenMasked}`
-                      : 'ANTHROPIC_AUTH_TOKEN'}
+                    {!isCreate && (provider?.hasApiKey || provider?.hasAnthropicAuthToken)
+                      ? `当前 ${provider.apiKeyMasked || provider.anthropicAuthTokenMasked}`
+                      : protocol === 'anthropic-messages' ? 'ANTHROPIC_AUTH_TOKEN' : 'API_KEY'}
                   </span>
                 </label>
                 <Input
@@ -844,6 +948,69 @@ export function ProviderEditor({
                 )}
               </div>
 
+              <div>
+                <div className="mb-1.5 flex items-center justify-between gap-3">
+                  <label className="text-xs font-medium text-foreground">自定义 Header（可选）</label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => {
+                      setHeaderRows((rows) => [...rows, { key: '', value: '' }]);
+                      setHeadersDirty(true);
+                    }}
+                    disabled={saving}
+                  >
+                    <Plus className="mr-1 size-3.5" /> 添加
+                  </Button>
+                </div>
+                {headerRows.length > 0 && (
+                  <div className="space-y-2">
+                    {headerRows.map((row, index) => (
+                      <div key={`${index}-${row.key}`} className="flex min-w-0 gap-2">
+                        <Input
+                          value={row.key}
+                          onChange={(event) => {
+                            setHeadersDirty(true);
+                            setHeaderRows((rows) => rows.map((item, i) => i === index ? { ...item, key: event.target.value } : item));
+                          }}
+                          placeholder="Header 名称"
+                          disabled={saving}
+                          className="min-w-0 flex-1 font-mono text-xs"
+                        />
+                        <Input
+                          type="password"
+                          value={row.value}
+                          onChange={(event) => {
+                            setHeadersDirty(true);
+                            setHeaderRows((rows) => rows.map((item, i) => i === index ? { ...item, value: event.target.value } : item));
+                          }}
+                          placeholder="Header 值"
+                          disabled={saving}
+                          className="min-w-0 flex-1 font-mono text-xs"
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-9 w-9 shrink-0 p-0"
+                          onClick={() => {
+                            setHeadersDirty(true);
+                            setHeaderRows((rows) => rows.filter((_, i) => i !== index));
+                          }}
+                          disabled={saving}
+                          aria-label="删除 Header"
+                        >
+                          <X className="size-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="mt-1.5 text-xs text-muted-foreground">Header 值会加密保存，列表中只显示脱敏状态。</p>
+              </div>
+
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_13rem] sm:items-end">
                 <div className="min-w-0">
                   <label className="mb-1.5 flex items-center justify-between gap-3 text-xs font-medium text-foreground">
@@ -858,10 +1025,47 @@ export function ProviderEditor({
                     onChange={(e) => setModel(e.target.value)}
                     disabled={saving}
                     placeholder="例如 glm-5.2、k3、qwen3.7-max"
+                    list="provider-model-options"
                     autoComplete="off"
                   />
+                  <datalist id="provider-model-options">
+                    {modelOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.name}
+                      </option>
+                    ))}
+                  </datalist>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      onClick={refreshModels}
+                      disabled={saving || modelsLoading}
+                      title={isCreate ? '保存后可从上游拉取模型' : '从当前 Endpoint 拉取模型'}
+                    >
+                      {modelsLoading ? (
+                        <Loader2 className="mr-1 size-3.5 animate-spin" />
+                      ) : (
+                        <RotateCcw className="mr-1 size-3.5" />
+                      )}
+                      刷新模型
+                    </Button>
+                    {modelOptions.length > 0 && (
+                      <span className="text-[11px] text-muted-foreground">
+                        已发现 {modelOptions.length} 个模型，可直接从输入框建议中选择
+                      </span>
+                    )}
+                    {modelsError && (
+                      <span className="text-[11px] text-amber-600 dark:text-amber-400">
+                        {modelsError}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
+                {protocol === 'anthropic-messages' && (
                 <div className="flex min-h-16 items-center justify-between gap-3 rounded-xl border border-border/80 bg-muted/35 px-3.5 py-2.5">
                   <label
                     htmlFor="provider-one-million-context"
@@ -882,6 +1086,7 @@ export function ProviderEditor({
                     aria-label="启用 1M 上下文"
                   />
                 </div>
+                )}
               </div>
 
               <div className="rounded-xl border border-primary/15 bg-primary/[0.035] px-3.5 py-3">

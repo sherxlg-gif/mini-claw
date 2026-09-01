@@ -9,7 +9,7 @@ export interface ProviderModelSelection {
 export interface DefaultProviderEnvRow {
   key: string;
   value: string;
-  source: 'model' | 'context' | 'default';
+  source: 'model' | 'context' | 'default' | 'endpoint' | 'provider';
 }
 
 /** Convert a stored provider model into the editable model name and context toggle. */
@@ -36,8 +36,16 @@ export function buildProviderModel(
 export function buildDefaultProviderEnv(
   value: string,
   oneMillionContext: boolean,
+  protocol: 'anthropic-messages' | 'openai-chat-completions' | 'openai-responses' = 'anthropic-messages',
+  baseUrl = '',
 ): DefaultProviderEnvRow[] {
   const model = buildProviderModel(value, oneMillionContext);
+  if (protocol !== 'anthropic-messages') {
+    return [
+      { key: 'OPENAI_BASE_URL', value: baseUrl.trim(), source: 'endpoint' },
+      { key: 'OPENAI_MODEL', value: model, source: 'model' },
+    ];
+  }
   return [
     { key: 'ANTHROPIC_DEFAULT_OPUS_MODEL', value: model, source: 'model' },
     { key: 'ANTHROPIC_DEFAULT_SONNET_MODEL', value: model, source: 'model' },

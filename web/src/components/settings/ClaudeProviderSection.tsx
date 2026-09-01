@@ -186,6 +186,9 @@ export function ClaudeProviderSection({
         await api.post('/api/config/claude/providers', {
           name: `${provider.name} (副本)`,
           type: 'third_party',
+          protocol: provider.protocol,
+          baseUrl: provider.baseUrl || provider.anthropicBaseUrl,
+          model: provider.model || provider.anthropicModel,
           anthropicBaseUrl: provider.anthropicBaseUrl,
           anthropicModel: provider.anthropicModel,
           customEnv: provider.customEnv,

@@ -2412,6 +2412,7 @@ async function runQueryAttempt(
   // mode follows that boundary while preserving the same SDK tools.
   const includeClaudePreset =
     !proactiveInteractiveContract &&
+    CLAUDE_PROVIDER_RUNTIME.protocol === 'anthropic-messages' &&
     (containerInput.agentProfile?.includeClaudePreset ?? true);
   const promptPlan = buildMiniclawPromptPlan({
     platformIdentity: containerInput.agentProfile?.isDefault
@@ -2533,9 +2534,14 @@ async function runQueryAttempt(
         skillPaths: piSkillPaths,
         provider: {
           endpointKind: CLAUDE_PROVIDER_RUNTIME.endpointKind,
-          baseUrl: process.env.ANTHROPIC_BASE_URL,
+          protocol: CLAUDE_PROVIDER_RUNTIME.protocol,
+          baseUrl: process.env.MINICLAW_PROVIDER_BASE_URL || process.env.ANTHROPIC_BASE_URL,
           apiKey:
+            process.env.MINICLAW_PROVIDER_API_KEY ||
             process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN,
+          headers: process.env.MINICLAW_PROVIDER_CUSTOM_HEADERS
+            ? JSON.parse(process.env.MINICLAW_PROVIDER_CUSTOM_HEADERS)
+            : undefined,
         },
       },
       prompt,

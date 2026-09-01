@@ -279,7 +279,7 @@ function createApplicationMenu(): void {
     {
       label: 'Help',
       submenu: [
-        { label: 'Miniclaw on GitHub', click: () => void openExternalUrl('https://github.com/helsome/miniclaw') },
+        { label: 'Miniclaw 项目主页', click: () => void openExternalUrl('https://github.com/sherxlg-gif/miniclaw-private') },
       ],
     },
   ];

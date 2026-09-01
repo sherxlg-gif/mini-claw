@@ -8,6 +8,7 @@ export interface UnifiedProviderPublic {
   weight: number;
   anthropicBaseUrl: string;
   anthropicModel: string;
+  model: string;
   hasAnthropicAuthToken: boolean;
   anthropicAuthTokenMasked: string | null;
   hasAnthropicApiKey: boolean;
@@ -19,6 +20,11 @@ export interface UnifiedProviderPublic {
   claudeOAuthCredentialsAccessTokenMasked: string | null;
   customEnv: Record<string, string>;
   updatedAt: string;
+  protocol?: 'anthropic-messages' | 'openai-chat-completions' | 'openai-responses';
+  baseUrl?: string;
+  hasApiKey?: boolean;
+  apiKeyMasked?: string | null;
+  customHeaders?: Record<string, string>;
 }
 
 export interface ProviderHealthStatus {

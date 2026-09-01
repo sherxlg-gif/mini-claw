@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Loader2, Globe, Sparkles } from 'lucide-react';
+import { Loader2, Sparkles } from 'lucide-react';
 import { useAuthStore } from '../stores/auth';
 import { LogoLoading } from '../components/common/LogoLoading';
 import { api } from '../api/client';
@@ -164,18 +164,6 @@ export function LoginPage() {
           <span className="text-lg font-semibold text-foreground tracking-tight">
             Miniclaw
           </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <a
-            href="https://github.com/helsome/miniclaw"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Button variant="ghost" size="sm">
-              <Globe className="size-4" />
-              <span className="hidden sm:inline">GitHub</span>
-            </Button>
-          </a>
         </div>
       </header>
 

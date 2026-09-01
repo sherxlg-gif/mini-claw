@@ -132,8 +132,10 @@ export type RuntimeSessionOptions = {
   /** Runtime-specific provider configuration. */
   provider?: {
     endpointKind?: 'official' | 'custom';
+    protocol?: 'anthropic-messages' | 'openai-chat-completions' | 'openai-responses';
     baseUrl?: string;
     apiKey?: string;
+    headers?: Record<string, string>;
   };
   /**
    * Product auto-compact toggle (default true). Maps to the runtime-native

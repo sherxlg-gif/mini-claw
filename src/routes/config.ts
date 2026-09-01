@@ -175,6 +175,88 @@ import {
 } from '../admin-host-only-runtime.js';
 const configRoutes = new Hono<{ Variables: Variables }>();
 
+type ProviderModelOption = {
+  id: string;
+  name: string;
+};
+
+function providerModelsUrl(baseUrl: string): string {
+  const normalized = baseUrl.trim().replace(/\/+$/, '');
+  if (!normalized) throw new Error('该 Provider 未配置 API Endpoint');
+  const parsed = new URL(`${normalized}/`);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('API Endpoint 必须使用 HTTP 或 HTTPS');
+  }
+  return new URL('models', parsed).toString();
+}
+
+function providerModelHeaders(provider: ReturnType<typeof getProviders>[number]): Record<string, string> {
+  const config = providerToConfig(provider);
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    ...(provider.customHeaders || {}),
+  };
+  if (config.apiKey && !Object.keys(headers).some((key) => key.toLowerCase() === 'authorization' || key.toLowerCase() === 'x-api-key')) {
+    if ((provider.protocol || 'anthropic-messages') === 'anthropic-messages') {
+      headers['x-api-key'] = config.apiKey;
+      headers['anthropic-version'] = '2023-06-01';
+    } else {
+      headers.Authorization = `Bearer ${config.apiKey}`;
+    }
+  }
+  return headers;
+}
+
+async function fetchProviderModels(provider: ReturnType<typeof getProviders>[number]): Promise<ProviderModelOption[]> {
+  const endpoint = providerModelsUrl(provider.baseUrl || provider.anthropicBaseUrl || '');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: providerModelHeaders(provider),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`上游模型列表请求失败（HTTP ${response.status}）`);
+    }
+    const payload = (await response.json()) as unknown;
+    const candidates =
+      Array.isArray(payload)
+        ? payload
+        : payload && typeof payload === 'object'
+          ? Array.isArray((payload as { data?: unknown }).data)
+            ? (payload as { data: unknown[] }).data
+            : Array.isArray((payload as { models?: unknown }).models)
+              ? (payload as { models: unknown[] }).models
+              : []
+          : [];
+    const seen = new Set<string>();
+    return candidates
+      .map((item): ProviderModelOption | null => {
+        if (typeof item === 'string') return { id: item, name: item };
+        if (!item || typeof item !== 'object') return null;
+        const record = item as Record<string, unknown>;
+        const id = typeof record.id === 'string' ? record.id.trim() : '';
+        if (!id) return null;
+        const name = typeof record.display_name === 'string'
+          ? record.display_name.trim()
+          : typeof record.name === 'string'
+            ? record.name.trim()
+            : id;
+        return { id, name: name || id };
+      })
+      .filter((item): item is ProviderModelOption => {
+        if (!item || seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 /**
  * Count how many IM channels are currently enabled for a user, excluding the given channel.
  * Used for billing limit checks when enabling a new channel.
@@ -882,6 +964,31 @@ configRoutes.get(
   },
 );
 
+// ─── GET /claude/providers/:id/models — 从上游读取可用模型 ─────
+configRoutes.get(
+  '/claude/providers/:id/models',
+  authMiddleware,
+  systemConfigMiddleware,
+  async (c) => {
+    const { id } = c.req.param();
+    const provider = getProviders().find((item) => item.id === id);
+    if (!provider) return c.json({ error: '未找到指定供应商' }, 404);
+    try {
+      const models = await fetchProviderModels(provider);
+      return c.json({
+        providerId: id,
+        protocol: provider.protocol || 'anthropic-messages',
+        models,
+        fetchedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '模型列表获取失败';
+      logger.warn({ providerId: id, err: message }, 'Failed to fetch provider models');
+      return c.json({ error: message }, 502);
+    }
+  },
+);
+
 // ─── PUT /claude/default — 设置所有继承型 Agent 使用的默认模型配置 ─────
 configRoutes.put(
   '/claude/default',
@@ -1016,21 +1123,23 @@ configRoutes.patch(
         const changedFields = Object.keys(validation.data).map(
           (k) => `${k}:updated`,
         );
-        const baseUrlChanged = !!(
-          validation.data.anthropicBaseUrl !== undefined &&
-          validation.data.anthropicBaseUrl !== previous.anthropicBaseUrl
-        );
-        const modelChanged = !!(
-          validation.data.anthropicModel !== undefined &&
-          validation.data.anthropicModel !== previous.anthropicModel
-        );
+        const nextBaseUrl = validation.data.baseUrl ?? validation.data.anthropicBaseUrl;
+        const nextModel = validation.data.model ?? validation.data.anthropicModel;
+        const baseUrlChanged = nextBaseUrl !== undefined &&
+          nextBaseUrl !== (previous.baseUrl || previous.anthropicBaseUrl);
+        const modelChanged = nextModel !== undefined &&
+          nextModel !== (previous.model || previous.anthropicModel);
         const customEnvChanged = !!(
           validation.data.customEnv !== undefined &&
           JSON.stringify(validation.data.customEnv) !==
             JSON.stringify(previous.customEnv)
         );
+        const protocolChanged = validation.data.protocol !== undefined &&
+          validation.data.protocol !== (previous.protocol || 'anthropic-messages');
+        const customHeadersChanged = validation.data.customHeaders !== undefined &&
+          JSON.stringify(validation.data.customHeaders) !== JSON.stringify(previous.customHeaders || {});
         const protocolFieldChanged =
-          baseUrlChanged || modelChanged || customEnvChanged;
+          protocolChanged || baseUrlChanged || modelChanged || customEnvChanged || customHeadersChanged;
         const pendingInvalidation = getPendingProviderSessionInvalidation(id);
         const sessionInvalidation = {
           modelChanged:
@@ -1153,6 +1262,10 @@ configRoutes.put(
         const previous = getProviders().find((provider) => provider.id === id);
         if (!previous) throw new Error('未找到指定供应商');
         const changedFields: string[] = [];
+        if (validation.data.apiKey !== undefined)
+          changedFields.push('apiKey:set');
+        if (validation.data.clearApiKey)
+          changedFields.push('apiKey:clear');
         if (validation.data.anthropicAuthToken !== undefined)
           changedFields.push('anthropicAuthToken:set');
         if (validation.data.clearAnthropicAuthToken)

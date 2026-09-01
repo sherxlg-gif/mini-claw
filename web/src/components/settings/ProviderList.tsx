@@ -204,6 +204,11 @@ export function ProviderList({
                       >
                         {provider.type === 'official' ? '官方' : '第三方'}
                       </span>
+                      {provider.protocol && provider.protocol !== 'anthropic-messages' && (
+                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300">
+                          {provider.protocol === 'openai-responses' ? 'OpenAI Responses' : 'OpenAI Chat'}
+                        </span>
+                      )}
                       {isDefault && (
                         <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">
                           <Star className="size-3 fill-current" />

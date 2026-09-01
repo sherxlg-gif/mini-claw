@@ -151,6 +151,25 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
     () => localStorage.getItem('im-banner-dismissed') === '1',
   );
   const navigate = useNavigate();
+  const [defaultProviderLabel, setDefaultProviderLabel] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void api.get<{ providers: Array<{ id: string; name: string; model?: string; anthropicModel?: string; protocol?: string }>; defaultProviderId: string | null }>('/api/config/claude/providers')
+      .then((data) => {
+        if (cancelled) return;
+        const provider = data.providers.find((item) => item.id === data.defaultProviderId);
+        if (provider) {
+          const model = provider.model || provider.anthropicModel || '';
+          setDefaultProviderLabel(`${provider.name}${model ? ` · ${model}` : ''}`);
+        } else {
+          setDefaultProviderLabel(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setDefaultProviderLabel(null);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // Drag state refs (not reactive — only used in event handlers)
   const containerRef = useRef<HTMLDivElement>(null);
@@ -996,6 +1015,11 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
                 </>
               )}
               <span className="shrink-0 text-muted-foreground/40">·</span>
+              {defaultProviderLabel && (
+                <span className="hidden max-w-[16rem] truncate rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline-flex" title={`默认 Provider：${defaultProviderLabel}`}>
+                  {defaultProviderLabel}
+                </span>
+              )}
               <span
                 className={cn(
                   'inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-medium',

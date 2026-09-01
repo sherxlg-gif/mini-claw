@@ -29,8 +29,10 @@ export async function resolvePiProvider(
   input: {
     model?: string;
     endpointKind?: 'official' | 'custom';
+    protocol?: 'anthropic-messages' | 'openai-chat-completions' | 'openai-responses';
     baseUrl?: string;
     apiKey?: string;
+    headers?: Record<string, string>;
   },
 ): Promise<PiProviderResolution> {
   const rawModel = input.model?.trim() || '';
@@ -51,10 +53,9 @@ export async function resolvePiProvider(
     };
   }
   const split = splitModelRef(rawModel || 'claude-sonnet');
-  const custom = input.endpointKind === 'custom' || !!input.baseUrl?.trim();
-  const providerId = custom
-    ? `miniclaw-${split.providerId}`
-    : split.providerId;
+  const protocol = input.protocol || (input.endpointKind === 'custom' ? 'anthropic-messages' : 'anthropic-messages');
+  const custom = input.endpointKind === 'custom' || !!input.baseUrl?.trim() || protocol !== 'anthropic-messages';
+  const providerId = custom ? `miniclaw-${split.providerId}` : split.providerId;
 
   if (custom) {
     if (!input.baseUrl?.trim()) {
@@ -66,13 +67,14 @@ export async function resolvePiProvider(
     modelRuntime.registerProvider(providerId, {
       name: `Miniclaw ${split.providerId} compatible provider`,
       baseUrl: input.baseUrl.trim(),
-      api: 'anthropic-messages',
+      api: protocol === 'openai-chat-completions' ? 'openai-completions' : protocol === 'openai-responses' ? 'openai-responses' : 'anthropic-messages',
       ...(input.apiKey?.trim() ? { apiKey: input.apiKey.trim() } : {}),
+      ...(input.headers ? { headers: input.headers } : {}),
       models: [
         {
           id: split.modelId,
           name: split.modelId,
-          api: 'anthropic-messages',
+          api: protocol === 'openai-chat-completions' ? 'openai-completions' : protocol === 'openai-responses' ? 'openai-responses' : 'anthropic-messages',
           reasoning: true,
           input: ['text', 'image'],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

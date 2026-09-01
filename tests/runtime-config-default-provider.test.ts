@@ -135,7 +135,7 @@ describe('default model configuration', () => {
       defaultProviderId: string;
     };
     expect(migrated).toMatchObject({
-      version: 5,
+      version: 6,
       defaultProviderId: firstEnabledId,
     });
   });

@@ -6,6 +6,7 @@ export type ClaudeEndpointKind = 'official' | 'custom';
 
 export interface ClaudeProviderRuntime {
   endpointKind: ClaudeEndpointKind;
+  protocol: 'anthropic-messages' | 'openai-chat-completions' | 'openai-responses';
   model: string;
   queryModelOptions: { model?: string };
   usageModelKey: string;
@@ -41,6 +42,7 @@ export function resolveClaudeProviderRuntime(
   env: Readonly<Record<string, string | undefined>>,
 ): ClaudeProviderRuntime {
   const model = env.ANTHROPIC_MODEL?.trim() ?? '';
+  const protocol = (env.MINICLAW_PROVIDER_PROTOCOL?.trim() || 'anthropic-messages') as ClaudeProviderRuntime['protocol'];
   const marker = (
     env[MINICLAW_CLAUDE_ENDPOINT_KIND_ENV] || env[CLAUDE_ENDPOINT_KIND_ENV]
   )
@@ -55,6 +57,7 @@ export function resolveClaudeProviderRuntime(
 
   return {
     endpointKind,
+    protocol,
     model,
     queryModelOptions: model ? { model } : {},
     usageModelKey: model || 'default',

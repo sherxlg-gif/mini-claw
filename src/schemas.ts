@@ -1159,6 +1159,19 @@ export const UnifiedProviderCreateSchema = z
   .object({
     name: z.string().min(1).max(64),
     type: z.enum(['official', 'third_party']),
+    protocol: z
+      .enum([
+        'anthropic-messages',
+        'openai-chat-completions',
+        'openai-responses',
+      ])
+      .optional(),
+    baseUrl: ProviderBaseUrlSchema.optional(),
+    model: z.string().max(128).optional(),
+    apiKey: z.string().max(2000).optional(),
+    customHeaders: z
+      .record(z.string().min(1).max(128), z.string().max(4096))
+      .optional(),
     anthropicBaseUrl: ProviderBaseUrlSchema.optional(),
     anthropicAuthToken: z.string().max(2000).optional(),
     anthropicModel: z.string().max(128).optional(),
@@ -1170,9 +1183,28 @@ export const UnifiedProviderCreateSchema = z
     enabled: z.boolean().optional(),
   })
   .superRefine((data, ctx) => {
+    const protocol = data.protocol || 'anthropic-messages';
+    const baseUrl = data.baseUrl ?? data.anthropicBaseUrl;
+    const model = data.model ?? data.anthropicModel;
+    if (protocol !== 'anthropic-messages' && !baseUrl?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['baseUrl'],
+        message: 'OpenAI 兼容供应商必须提供 API Endpoint',
+      });
+    }
+    if (protocol !== 'anthropic-messages' && !model?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['model'],
+        message: 'OpenAI 兼容供应商必须提供模型名称',
+      });
+    }
     if (
       data.type === 'third_party' &&
+      !data.baseUrl?.trim() &&
       !data.anthropicBaseUrl?.trim() &&
+      !data.apiKey?.trim() &&
       !data.anthropicAuthToken?.trim()
     ) {
       ctx.addIssue({
@@ -1186,6 +1218,18 @@ export const UnifiedProviderCreateSchema = z
 export const UnifiedProviderPatchSchema = z
   .object({
     name: z.string().min(1).max(64).optional(),
+    protocol: z
+      .enum([
+        'anthropic-messages',
+        'openai-chat-completions',
+        'openai-responses',
+      ])
+      .optional(),
+    baseUrl: ProviderBaseUrlSchema.optional(),
+    model: z.string().max(128).optional(),
+    customHeaders: z
+      .record(z.string().min(1).max(128), z.string().max(4096))
+      .optional(),
     anthropicBaseUrl: ProviderBaseUrlSchema.optional(),
     anthropicModel: z.string().max(128).optional(),
     customEnv: z.record(z.string().max(256), z.string().max(4096)).optional(),
@@ -1194,6 +1238,10 @@ export const UnifiedProviderPatchSchema = z
   .refine(
     (data) =>
       data.name !== undefined ||
+      data.protocol !== undefined ||
+      data.baseUrl !== undefined ||
+      data.model !== undefined ||
+      data.customHeaders !== undefined ||
       data.anthropicBaseUrl !== undefined ||
       data.anthropicModel !== undefined ||
       data.customEnv !== undefined ||
@@ -1203,6 +1251,8 @@ export const UnifiedProviderPatchSchema = z
 
 export const UnifiedProviderSecretsSchema = z
   .object({
+    apiKey: z.string().max(2000).optional(),
+    clearApiKey: z.boolean().optional(),
     anthropicAuthToken: z.string().max(2000).optional(),
     clearAnthropicAuthToken: z.boolean().optional(),
     anthropicApiKey: z.string().max(2000).optional(),
@@ -1215,6 +1265,8 @@ export const UnifiedProviderSecretsSchema = z
   .refine(
     (data) => {
       return (
+        typeof data.apiKey === 'string' ||
+        data.clearApiKey === true ||
         typeof data.anthropicAuthToken === 'string' ||
         data.clearAnthropicAuthToken === true ||
         typeof data.anthropicApiKey === 'string' ||

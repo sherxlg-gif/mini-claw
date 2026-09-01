@@ -66,4 +66,21 @@ describe('agent-runner provider model contract', () => {
       }).endpointKind,
     ).toBe('custom');
   });
+
+  test.each([
+    ['openai-chat-completions', 'https://api.deepseek.com/v1', 'deepseek-chat'],
+    ['openai-responses', 'https://api.example.test/v1', 'codex-mini'],
+    ['anthropic-messages', 'https://api.example.test/anthropic', 'claude-sonnet'],
+  ] as const)('preserves selected protocol %s', (protocol, baseUrl, model) => {
+    const runtime = resolveClaudeProviderRuntime({
+      MINICLAW_CLAUDE_ENDPOINT_KIND: 'custom',
+      MINICLAW_PROVIDER_PROTOCOL: protocol,
+      MINICLAW_PROVIDER_BASE_URL: baseUrl,
+      ANTHROPIC_MODEL: model,
+    });
+
+    expect(runtime.protocol).toBe(protocol);
+    expect(runtime.model).toBe(model);
+    expect(runtime.missingRequiredModel).toBe(false);
+  });
 });

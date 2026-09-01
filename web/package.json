@@ -55,12 +55,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/helsome/miniclaw.git",
+    "url": "git+https://github.com/sherxlg-gif/miniclaw-private.git",
     "directory": "web"
   },
-  "homepage": "https://github.com/helsome/miniclaw#readme",
+  "homepage": "https://github.com/sherxlg-gif/miniclaw-private#readme",
   "bugs": {
-    "url": "https://github.com/helsome/miniclaw/issues"
-  },
-  "author": "helson"
+    "url": "https://github.com/sherxlg-gif/miniclaw-private/issues"
+  }
 }

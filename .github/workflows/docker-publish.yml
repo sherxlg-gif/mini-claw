@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE_NAME: helsome/miniclaw-agent
+  IMAGE_NAME: miniclaw-agent
 
 jobs:
   build-and-smoke:

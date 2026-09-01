@@ -84,6 +84,16 @@ const RESERVED_CLAUDE_ENV_KEYS = new Set([
   'MINICLAW_CLAUDE_ENDPOINT_KIND',
   'MINICLAW_FALLBACK_MODEL',
 ]);
+const RESERVED_OPENAI_ENV_KEYS = new Set([
+  'OPENAI_BASE_URL',
+  'OPENAI_MODEL',
+  'OPENAI_API_KEY',
+  'MINICLAW_PROVIDER_PROTOCOL',
+  'MINICLAW_PROVIDER_BASE_URL',
+  'MINICLAW_PROVIDER_MODEL',
+  'MINICLAW_PROVIDER_API_KEY',
+  'MINICLAW_PROVIDER_CUSTOM_HEADERS',
+]);
 
 export const CLAUDE_ENDPOINT_KIND_ENV = 'MINICLAW_CLAUDE_ENDPOINT_KIND';
 
@@ -103,6 +113,14 @@ const INHERITED_CLAUDE_PROVIDER_ENV_KEYS = [
   'CLAUDE_CODE_EFFORT_LEVEL',
   'CLAUDE_CODE_NO_FLICKER',
   'API_TIMEOUT_MS',
+  'OPENAI_BASE_URL',
+  'OPENAI_MODEL',
+  'OPENAI_API_KEY',
+  'MINICLAW_PROVIDER_PROTOCOL',
+  'MINICLAW_PROVIDER_BASE_URL',
+  'MINICLAW_PROVIDER_MODEL',
+  'MINICLAW_PROVIDER_API_KEY',
+  'MINICLAW_PROVIDER_CUSTOM_HEADERS',
 ] as const;
 
 /**
@@ -244,6 +262,10 @@ export interface CachedOAuthUsage {
 }
 
 export interface ClaudeProviderConfig {
+  protocol?: ProviderProtocol;
+  baseUrl?: string;
+  apiKey?: string;
+  customHeaders?: Record<string, string>;
   anthropicBaseUrl: string;
   anthropicAuthToken: string;
   anthropicApiKey: string;
@@ -252,6 +274,11 @@ export interface ClaudeProviderConfig {
   anthropicModel: string;
   updatedAt: string | null;
 }
+
+export type ProviderProtocol =
+  | 'anthropic-messages'
+  | 'openai-chat-completions'
+  | 'openai-responses';
 
 export interface ClaudeProviderPublicConfig {
   anthropicBaseUrl: string;
@@ -326,6 +353,8 @@ export interface TelegramProviderPublicConfig {
 }
 
 interface SecretPayload {
+  apiKey?: string;
+  customHeaders?: Record<string, string>;
   anthropicAuthToken: string;
   anthropicApiKey: string;
   claudeCodeOauthToken: string;
@@ -441,6 +470,9 @@ interface StoredProviderV4 {
   secrets: EncryptedSecrets;
   customEnv?: Record<string, string>;
   updatedAt: string;
+  protocol?: ProviderProtocol;
+  baseUrl?: string;
+  model?: string;
 }
 
 interface StoredClaudeProviderConfigV4 {
@@ -460,6 +492,10 @@ interface StoredClaudeProviderConfigV5 {
   updatedAt: string;
 }
 
+interface StoredClaudeProviderConfigV6 extends Omit<StoredClaudeProviderConfigV5, 'version'> {
+  version: 6;
+}
+
 /** 解密后的统一供应商运行时结构 */
 export interface UnifiedProvider {
   id: string;
@@ -470,11 +506,16 @@ export interface UnifiedProvider {
   anthropicBaseUrl: string;
   anthropicAuthToken: string;
   anthropicModel: string;
+  model?: string;
   anthropicApiKey: string;
   claudeCodeOauthToken: string;
   claudeOAuthCredentials: ClaudeOAuthCredentials | null;
   customEnv: Record<string, string>;
   updatedAt: string;
+  protocol?: ProviderProtocol;
+  baseUrl?: string;
+  apiKey?: string;
+  customHeaders?: Record<string, string>;
 }
 
 /** UnifiedProvider 的公开（脱敏）版本 */
@@ -486,6 +527,7 @@ export interface UnifiedProviderPublic {
   weight: number;
   anthropicBaseUrl: string;
   anthropicModel: string;
+  model: string;
   hasAnthropicAuthToken: boolean;
   anthropicAuthTokenMasked: string | null;
   hasAnthropicApiKey: boolean;
@@ -497,6 +539,11 @@ export interface UnifiedProviderPublic {
   claudeOAuthCredentialsAccessTokenMasked: string | null;
   customEnv: Record<string, string>;
   updatedAt: string;
+  protocol?: ProviderProtocol;
+  baseUrl?: string;
+  hasApiKey?: boolean;
+  apiKeyMasked?: string | null;
+  customHeaders?: Record<string, string>;
 }
 
 const MAX_PROVIDERS = 20;
@@ -1126,6 +1173,8 @@ function writeStoredState(state: ClaudeStoredStateV3Resolved): void {
 
 function toStoredProviderV4(provider: UnifiedProvider): StoredProviderV4 {
   const secrets: SecretPayload = {
+    apiKey: provider.apiKey || provider.anthropicApiKey || provider.anthropicAuthToken || '',
+    customHeaders: provider.customHeaders || {},
     anthropicAuthToken: provider.anthropicAuthToken || '',
     anthropicApiKey: provider.anthropicApiKey || '',
     claudeCodeOauthToken: provider.claudeCodeOauthToken || '',
@@ -1147,11 +1196,18 @@ function toStoredProviderV4(provider: UnifiedProvider): StoredProviderV4 {
       ? { customEnv: sanitizedEnv }
       : {}),
     updatedAt: provider.updatedAt || new Date().toISOString(),
+    protocol: provider.protocol,
+    baseUrl: provider.baseUrl,
+    model: provider.model || provider.anthropicModel || '',
   };
 }
 
 function fromStoredProviderV4(stored: StoredProviderV4): UnifiedProvider {
   const secrets = decryptSecrets(stored.secrets);
+  const protocol: ProviderProtocol = stored.protocol || 'anthropic-messages';
+  const baseUrl = stored.baseUrl || stored.anthropicBaseUrl || '';
+  const model = stored.model || stored.anthropicModel || '';
+  const apiKey = secrets.apiKey || secrets.anthropicApiKey || secrets.anthropicAuthToken || '';
   return {
     id: stored.id,
     name: stored.name,
@@ -1161,6 +1217,7 @@ function fromStoredProviderV4(stored: StoredProviderV4): UnifiedProvider {
     anthropicBaseUrl: stored.anthropicBaseUrl || '',
     anthropicAuthToken: secrets.anthropicAuthToken || '',
     anthropicModel: stored.anthropicModel || '',
+    model,
     anthropicApiKey: secrets.anthropicApiKey || '',
     claudeCodeOauthToken: secrets.claudeCodeOauthToken || '',
     claudeOAuthCredentials: secrets.claudeOAuthCredentials ?? null,
@@ -1168,6 +1225,10 @@ function fromStoredProviderV4(stored: StoredProviderV4): UnifiedProvider {
       skipReservedClaudeKeys: true,
     }),
     updatedAt: stored.updatedAt || '',
+    protocol,
+    baseUrl,
+    apiKey,
+    customHeaders: secrets.customHeaders || {},
   };
 }
 
@@ -1298,10 +1359,10 @@ function readStoredStateV4(): {
     const content = fs.readFileSync(CLAUDE_CONFIG_FILE, 'utf-8');
     const parsed = JSON.parse(content) as Record<string, unknown>;
 
-    if (parsed.version === 5) {
+    if (parsed.version === 6 || parsed.version === 5) {
       const v5 = parsed as unknown as StoredClaudeProviderConfigV5;
       const providers = v5.providers.map(fromStoredProviderV4);
-      return {
+      const state = {
         providers,
         defaultProviderId: resolveDefaultProviderId(
           providers,
@@ -1317,6 +1378,10 @@ function readStoredStateV4(): {
             DEFAULT_BALANCING_CONFIG.recoveryIntervalMs,
         },
       };
+      if (parsed.version === 5) {
+        writeStoredStateV4(state.providers, state.balancing, state.defaultProviderId);
+      }
+      return state;
     }
 
     if (parsed.version === 4) {
@@ -1380,8 +1445,8 @@ function writeStoredStateV4(
   balancing: BalancingConfig,
   defaultProviderId?: string | null,
 ): void {
-  const payload: StoredClaudeProviderConfigV5 = {
-    version: 5,
+  const payload: StoredClaudeProviderConfigV6 = {
+    version: 6,
     providers: providers.map(toStoredProviderV4),
     defaultProviderId: resolveDefaultProviderId(providers, defaultProviderId),
     balancing,
@@ -1441,6 +1506,11 @@ export function saveBalancingConfig(
 export function createProvider(input: {
   name: string;
   type: 'official' | 'third_party';
+  protocol?: ProviderProtocol;
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+  customHeaders?: Record<string, string>;
   anthropicBaseUrl?: string;
   anthropicAuthToken?: string;
   anthropicModel?: string;
@@ -1462,24 +1532,31 @@ export function createProvider(input: {
   }
 
   const now = new Date().toISOString();
+  const protocol = input.protocol || (input.type === 'official' ? 'anthropic-messages' : 'anthropic-messages');
+  const normalizedBaseUrl = input.baseUrl !== undefined
+    ? normalizeBaseUrl(input.baseUrl)
+    : normalizeBaseUrl(input.anthropicBaseUrl || '');
+  const normalizedModel = input.model !== undefined
+    ? normalizeModel(input.model)
+    : normalizeModel(input.anthropicModel || '');
+  const normalizedApiKey = input.apiKey !== undefined
+    ? normalizeSecret(input.apiKey, 'apiKey')
+    : normalizeSecret(input.anthropicApiKey || input.anthropicAuthToken || '', 'apiKey');
   const provider: UnifiedProvider = {
     id: crypto.randomBytes(8).toString('hex'),
     name: normalizeProfileName(input.name),
     type: input.type,
     enabled: state.providers.length === 0 ? true : (input.enabled ?? false),
     weight: Math.max(1, Math.min(100, input.weight ?? 1)),
-    anthropicBaseUrl: input.anthropicBaseUrl
-      ? normalizeBaseUrl(input.anthropicBaseUrl)
-      : '',
+    anthropicBaseUrl: normalizedBaseUrl,
     anthropicAuthToken: input.anthropicAuthToken
       ? normalizeSecret(input.anthropicAuthToken, 'anthropicAuthToken')
       : '',
-    anthropicModel: input.anthropicModel
-      ? normalizeModel(input.anthropicModel)
-      : '',
-    anthropicApiKey: input.anthropicApiKey
+    anthropicModel: normalizedModel,
+    model: normalizedModel,
+    anthropicApiKey: protocol === 'anthropic-messages' && input.anthropicApiKey
       ? normalizeSecret(input.anthropicApiKey, 'anthropicApiKey')
-      : '',
+      : normalizedApiKey,
     claudeCodeOauthToken: input.claudeCodeOauthToken
       ? normalizeSecret(input.claudeCodeOauthToken, 'claudeCodeOauthToken')
       : '',
@@ -1488,6 +1565,10 @@ export function createProvider(input: {
       skipReservedClaudeKeys: true,
     }),
     updatedAt: now,
+    protocol,
+    baseUrl: normalizedBaseUrl,
+    apiKey: normalizedApiKey,
+    customHeaders: input.customHeaders || {},
   };
 
   state.providers.push(provider);
@@ -1501,6 +1582,10 @@ export function updateProvider(
   id: string,
   patch: {
     name?: string;
+    protocol?: ProviderProtocol;
+    baseUrl?: string;
+    model?: string;
+    customHeaders?: Record<string, string>;
     anthropicBaseUrl?: string;
     anthropicModel?: string;
     customEnv?: Record<string, string>;
@@ -1519,6 +1604,14 @@ export function updateProvider(
     ...(patch.name !== undefined
       ? { name: normalizeProfileName(patch.name) }
       : {}),
+    ...(patch.protocol !== undefined ? { protocol: patch.protocol } : {}),
+    ...(patch.baseUrl !== undefined
+      ? { baseUrl: normalizeBaseUrl(patch.baseUrl), anthropicBaseUrl: normalizeBaseUrl(patch.baseUrl) }
+      : {}),
+    ...(patch.model !== undefined
+      ? { model: normalizeModel(patch.model), anthropicModel: normalizeModel(patch.model) }
+      : {}),
+    ...(patch.customHeaders !== undefined ? { customHeaders: patch.customHeaders } : {}),
     ...(patch.anthropicBaseUrl !== undefined
       ? { anthropicBaseUrl: normalizeBaseUrl(patch.anthropicBaseUrl) }
       : {}),
@@ -1546,6 +1639,8 @@ export function updateProvider(
 export function updateProviderSecrets(
   id: string,
   secrets: {
+    apiKey?: string;
+    clearApiKey?: boolean;
     anthropicAuthToken?: string;
     clearAnthropicAuthToken?: boolean;
     anthropicApiKey?: string;
@@ -1564,6 +1659,15 @@ export function updateProviderSecrets(
 
   const current = state.providers[idx];
   const updated = { ...current, updatedAt: new Date().toISOString() };
+
+  if (typeof secrets.apiKey === 'string') {
+    updated.apiKey = normalizeSecret(secrets.apiKey, 'apiKey');
+    updated.anthropicApiKey = updated.apiKey;
+  } else if (secrets.clearApiKey) {
+    updated.apiKey = '';
+    updated.anthropicApiKey = '';
+    updated.anthropicAuthToken = '';
+  }
 
   if (typeof secrets.anthropicAuthToken === 'string') {
     updated.anthropicAuthToken = normalizeSecret(
@@ -1673,12 +1777,16 @@ export function providerToConfig(
   provider: UnifiedProvider,
 ): ClaudeProviderConfig {
   return {
+    protocol: provider.protocol || 'anthropic-messages',
+    baseUrl: provider.baseUrl || provider.anthropicBaseUrl,
+    apiKey: provider.apiKey || provider.anthropicApiKey || provider.anthropicAuthToken,
+    customHeaders: provider.customHeaders || {},
     anthropicBaseUrl: provider.anthropicBaseUrl,
     anthropicAuthToken: provider.anthropicAuthToken,
     anthropicApiKey: provider.anthropicApiKey,
     claudeCodeOauthToken: provider.claudeCodeOauthToken,
     claudeOAuthCredentials: provider.claudeOAuthCredentials,
-    anthropicModel: provider.anthropicModel,
+    anthropicModel: provider.model || provider.anthropicModel,
     updatedAt: provider.updatedAt,
   };
 }
@@ -1694,7 +1802,8 @@ export function toPublicProvider(
     enabled: provider.enabled,
     weight: provider.weight,
     anthropicBaseUrl: provider.anthropicBaseUrl,
-    anthropicModel: provider.anthropicModel,
+    anthropicModel: provider.model || provider.anthropicModel,
+    model: provider.model || provider.anthropicModel,
     hasAnthropicAuthToken: !!provider.anthropicAuthToken,
     anthropicAuthTokenMasked: maskSecret(provider.anthropicAuthToken),
     hasAnthropicApiKey: !!provider.anthropicApiKey,
@@ -1709,6 +1818,13 @@ export function toPublicProvider(
       : null,
     customEnv: provider.customEnv || {},
     updatedAt: provider.updatedAt,
+    protocol: provider.protocol || 'anthropic-messages',
+    baseUrl: provider.baseUrl || provider.anthropicBaseUrl,
+    hasApiKey: !!(provider.apiKey || provider.anthropicApiKey || provider.anthropicAuthToken),
+    apiKeyMasked: maskSecret(provider.apiKey || provider.anthropicApiKey || provider.anthropicAuthToken),
+    customHeaders: Object.fromEntries(
+      Object.keys(provider.customHeaders || {}).map((key) => [key, '***']),
+    ),
   };
 }
 
@@ -2620,7 +2736,11 @@ export function buildClaudeEnvLines(
   }
 
   for (const [key, value] of Object.entries(customEnv)) {
-    if (RESERVED_CLAUDE_ENV_KEYS.has(key) || isDangerousEnvKey(key)) continue;
+    if (
+      RESERVED_CLAUDE_ENV_KEYS.has(key) ||
+      RESERVED_OPENAI_ENV_KEYS.has(key) ||
+      isDangerousEnvKey(key)
+    ) continue;
     if (config.anthropicBaseUrl && THIRD_PARTY_CONFIGURABLE_ENV_KEYS.has(key)) {
       continue;
     }
@@ -2941,6 +3061,10 @@ export function mergeClaudeEnvConfig(
   override: ContainerEnvConfig,
 ): ClaudeProviderConfig {
   const merged: ClaudeProviderConfig = {
+    protocol: global.protocol,
+    baseUrl: global.baseUrl,
+    apiKey: global.apiKey,
+    customHeaders: global.customHeaders,
     anthropicBaseUrl: override.anthropicBaseUrl || global.anthropicBaseUrl,
     anthropicAuthToken:
       override.anthropicAuthToken || global.anthropicAuthToken,
@@ -3035,11 +3159,25 @@ export function buildContainerEnvLines(
   profileCustomEnv?: Record<string, string>,
 ): string[] {
   const merged = mergeClaudeEnvConfig(global, override);
+  const protocol = merged.protocol || 'anthropic-messages';
   const lines = [
     `${CLAUDE_ENDPOINT_KIND_ENV}=${merged.anthropicBaseUrl ? 'custom' : 'official'}`,
-    ...buildClaudeEnvLines(merged, profileCustomEnv),
+    ...(protocol === 'anthropic-messages'
+      ? buildClaudeEnvLines(merged, profileCustomEnv)
+      : []),
   ];
-
+  lines.push(`MINICLAW_PROVIDER_PROTOCOL=${protocol}`);
+  lines.push(`MINICLAW_PROVIDER_BASE_URL=${sanitizeEnvValue(merged.baseUrl || merged.anthropicBaseUrl || '')}`);
+  lines.push(`MINICLAW_PROVIDER_MODEL=${sanitizeEnvValue(merged.anthropicModel || '')}`);
+  lines.push(`MINICLAW_PROVIDER_API_KEY=${sanitizeEnvValue(merged.apiKey || merged.anthropicApiKey || merged.anthropicAuthToken || '')}`);
+  if (protocol !== 'anthropic-messages') {
+    lines.push(`OPENAI_BASE_URL=${sanitizeEnvValue(merged.baseUrl || '')}`);
+    lines.push(`OPENAI_MODEL=${sanitizeEnvValue(merged.anthropicModel || '')}`);
+    lines.push(`OPENAI_API_KEY=${sanitizeEnvValue(merged.apiKey || merged.anthropicApiKey || merged.anthropicAuthToken || '')}`);
+  }
+  if (merged.customHeaders && Object.keys(merged.customHeaders).length > 0) {
+    lines.push(`MINICLAW_PROVIDER_CUSTOM_HEADERS=${JSON.stringify(merged.customHeaders)}`);
+  }
   // Append custom env vars (with safety sanitization as defense-in-depth)
   if (override.customEnv) {
     for (const [key, value] of Object.entries(override.customEnv)) {
@@ -3061,6 +3199,7 @@ export function buildContainerEnvLines(
       }
       if (
         RESERVED_CLAUDE_ENV_KEYS.has(key) ||
+        RESERVED_OPENAI_ENV_KEYS.has(key) ||
         (merged.anthropicBaseUrl && THIRD_PARTY_CONFIGURABLE_ENV_KEYS.has(key))
       ) {
         logger.warn(

@@ -348,9 +348,14 @@ async function runTurn(
       customTools,
       provider: {
         endpointKind: provider.endpointKind,
-        baseUrl: process.env.ANTHROPIC_BASE_URL,
+        protocol: provider.protocol,
+        baseUrl: process.env.MINICLAW_PROVIDER_BASE_URL || process.env.ANTHROPIC_BASE_URL,
         apiKey:
+          process.env.MINICLAW_PROVIDER_API_KEY ||
           process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN,
+        headers: process.env.MINICLAW_PROVIDER_CUSTOM_HEADERS
+          ? JSON.parse(process.env.MINICLAW_PROVIDER_CUSTOM_HEADERS)
+          : undefined,
       },
       skillPaths: [
         path.join(process.env.CLAUDE_CONFIG_DIR || '', 'skills'),

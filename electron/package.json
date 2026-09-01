@@ -4,7 +4,6 @@
   "private": true,
   "description": "Electron Desktop Shell for Miniclaw",
   "main": "dist/main.cjs",
-  "author": "helson",
   "license": "MIT",
-  "homepage": "https://github.com/helsome/miniclaw#readme"
+  "homepage": "https://github.com/sherxlg-gif/miniclaw-private#readme"
 }
