@@ -28,29 +28,43 @@ function splitModelRef(value: string): { providerId: string; modelId: string } {
     : { providerId: 'anthropic', modelId: value };
 }
 
+function providerApiForProtocol(
+  protocol: NonNullable<ReturnType<typeof getClaudeProviderConfig>['protocol']>,
+): 'anthropic-messages' | 'openai-completions' | 'openai-responses' {
+  if (protocol === 'openai-chat-completions') return 'openai-completions';
+  if (protocol === 'openai-responses') return 'openai-responses';
+  return 'anthropic-messages';
+}
+
 async function resolveModel(
   runtime: ModelRuntime,
   config: ReturnType<typeof getClaudeProviderConfig>,
   override?: string,
 ) {
   const modelRef = override?.trim() || config.anthropicModel.trim();
-  const custom = !!config.anthropicBaseUrl.trim();
+  const protocol = config.protocol || 'anthropic-messages';
+  const baseUrl = (config.baseUrl || config.anthropicBaseUrl || '').trim();
+  const apiKey =
+    config.apiKey || config.anthropicApiKey || config.anthropicAuthToken || '';
+  const custom = !!baseUrl || protocol !== 'anthropic-messages';
   if (custom) {
+    if (!baseUrl) throw new Error('Custom provider requires an endpoint');
     if (!modelRef) throw new Error('Custom provider requires a model');
     const split = splitModelRef(modelRef);
     const providerId = `miniclaw-${split.providerId}`;
     runtime.registerProvider(providerId, {
       name: `Miniclaw ${split.providerId} compatible provider`,
-      baseUrl: config.anthropicBaseUrl.trim(),
-      api: 'anthropic-messages',
-      ...(config.anthropicApiKey || config.anthropicAuthToken
-        ? { apiKey: config.anthropicApiKey || config.anthropicAuthToken }
+      baseUrl,
+      api: providerApiForProtocol(protocol),
+      ...(apiKey ? { apiKey } : {}),
+      ...(config.customHeaders && Object.keys(config.customHeaders).length > 0
+        ? { headers: config.customHeaders }
         : {}),
       models: [
         {
           id: split.modelId,
           name: split.modelId,
-          api: 'anthropic-messages',
+          api: providerApiForProtocol(protocol),
           reasoning: true,
           input: ['text', 'image'],
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -62,11 +76,8 @@ async function resolveModel(
     return runtime.getModel(providerId, split.modelId);
   }
 
-  if (config.anthropicApiKey || config.anthropicAuthToken) {
-    await runtime.setRuntimeApiKey(
-      'anthropic',
-      config.anthropicApiKey || config.anthropicAuthToken,
-    );
+  if (apiKey) {
+    await runtime.setRuntimeApiKey('anthropic', apiKey);
   }
   if (!modelRef) return runtime.getModels('anthropic')[0];
   const split = splitModelRef(modelRef);

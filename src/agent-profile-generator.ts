@@ -29,6 +29,7 @@ const MAX_AGENT_NAME_LENGTH = 80;
 function hasUsableClaudeProvider(): boolean {
   const config = getClaudeProviderConfig();
   return !!(
+    config.apiKey ||
     config.anthropicApiKey ||
     config.anthropicAuthToken ||
     config.claudeCodeOauthToken ||
