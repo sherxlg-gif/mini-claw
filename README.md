@@ -1,6 +1,13 @@
 # Miniclaw
 
 <p align="center">
+  <img src="https://img.shields.io/badge/runtime-Node.js%2020%2B-339933?style=flat&logo=node.js&logoColor=white" alt="Node.js 20+" />
+  <img src="https://img.shields.io/badge/desktop-Electron-47848F?style=flat&logo=electron&logoColor=white" alt="Electron Desktop" />
+  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat" alt="MIT License" />
+  <img src="https://img.shields.io/badge/status-self--hosted-orange?style=flat" alt="Self-hosted" />
+</p>
+
+<p align="center">
   <img src="web/public/icons/logo-1024.png" alt="Miniclaw logo" width="96" />
 </p>
 
@@ -11,6 +18,8 @@
 
 <p align="center">
   <a href="https://github.com/sherxlg-gif/miniclaw-private">项目仓库</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#核心功能">核心功能</a> ·
   <a href="docs/API.md">API</a> ·
   <a href="docs/ACL-MATRIX.md">权限模型</a> ·
   <a href="SECURITY.md">安全策略</a>
@@ -35,14 +44,14 @@ Miniclaw 采用本地优先和显式集成的思路：数据库、工作区元�
 
 工作台围绕 `Agent → Workspace → Runtime Session` 组织信息。左侧导航提供工作台、智能体、能力库、任务、用量、账单和设置入口；进入工作台后，可以在同一个界面中切换 Agent、Workspace 和对话上下文。
 
-下面是当前桌面端工作台的实际界面：
+下面是当前 Electron Desktop 的实际界面：
 
 <p align="center">
   <img src="docs/screenshots/workbench.png" alt="Miniclaw 智能体工作台" width="900" />
 </p>
 
 <p align="center">
-  <em>工作台：在同一个窗口中管理 Agent、Workspace、Session 与对话。</em>
+  <em>Electron 工作台：在同一个窗口中管理 Agent、Workspace、Session 与对话。</em>
 </p>
 
 <p align="center">
@@ -51,7 +60,7 @@ Miniclaw 采用本地优先和显式集成的思路：数据库、工作区元�
 </p>
 
 <p align="center">
-  <em>能力库与模型配置：把 Skills、MCP、Plugins 和 Provider 配置放在清晰的管理边界内。</em>
+  <em>Electron 能力库与模型配置：把 Skills、MCP、Plugins 和 Provider 配置放在清晰的管理边界内。</em>
 </p>
 
 新的 Miniclaw 图标同时用于 Web/PWA、Electron 窗口和安装包资源：
@@ -68,6 +77,13 @@ Miniclaw 采用本地优先和显式集成的思路：数据库、工作区元�
 - 每个 Workspace 拥有独立的文件、Session、Memory、渠道绑定和执行边界。
 - Home Workspace 与自定义 Agent 分层管理，支持创建、重命名、重建、清空和删除。
 - 支持 Host 与 Docker 两种执行方式；需要隔离的任务可以在 Agent Runner 容器中运行。
+
+### 多 Provider API
+
+- 保留 Claude（Anthropic Messages）支持，同时支持 OpenAI Chat Completions、OpenAI Responses、DeepSeek、Qwen 以及其他兼容 OpenAI 协议的中转服务。
+- 每个 Provider 可独立配置 Endpoint、模型、API Key、自定义 Header 和高级环境变量；密钥加密保存，界面只显示脱敏状态。
+- 设置页支持“获取模型”，从当前 Endpoint 拉取可用模型；模型推理强度可按需调整，未设置时使用 `medium`。
+- Provider 配置通过统一的运行时环境注入 Pi Runner，切换 Provider 时不会继承上一个 Provider 的凭据或模型环境变量。
 
 ### Pi Agent Runtime
 
@@ -96,7 +112,7 @@ Miniclaw 采用本地优先和显式集成的思路：数据库、工作区元�
 ### 渠道与自动化
 
 - 支持将消息渠道绑定到指定 Workspace 或 Session，并按用户、群聊、话题和 owner 规则进行 ACL 判断。
-- 支持飞书、Telegram、QQ、钉钉、微信、Discord、WhatsApp 等消息入口。
+- 支持飞书、Telegram、QQ、钉钉、微信、Discord、WhatsApp 等消息入口；微信当前为私聊接入，群聊能力取决于对应渠道适配器。
 - Scheduler 支持 Cron、固定间隔和一次性任务，提供立即运行、暂停、取消、运行历史和结果投递。
 - 后台任务、Subagent 和渠道回复都沿用同一套 Workspace、Session、owner 与权限上下文。
 
