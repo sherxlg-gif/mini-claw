@@ -2496,6 +2496,9 @@ async function runQueryAttempt(
 
   if (AGENT_RUNTIME === 'pi') {
     log('Agent runtime: Pi');
+    const agentEffort = resolveAgentSdkEffort(
+      containerInput.agentProfile?.runtimePolicy,
+    );
     ipcPolling = false;
     ipcQueryWatcher.close();
     stream.end();
@@ -2524,7 +2527,7 @@ async function runQueryAttempt(
         sessionId,
         systemPrompt: systemPromptAppend,
         model: queryModelRuntime.model || undefined,
-        thinkingLevel: 'medium',
+        thinkingLevel: agentEffort ?? 'medium',
         allowedTools,
         excludedTools:
           disallowedTools && disallowedTools.length > 0

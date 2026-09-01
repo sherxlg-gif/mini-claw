@@ -293,7 +293,7 @@ export function MainAgentCapabilitiesSection() {
 
       <div className="max-w-xl space-y-2">
         <label className="text-xs font-medium text-muted-foreground">
-          推理努力档位
+          模型推理强度
         </label>
         <Select
           value={effort}
